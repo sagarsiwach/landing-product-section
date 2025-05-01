@@ -1,0 +1,92 @@
+/* components/HorizontalScrollGallery.module.css */
+
+/* --- Container and Track Styles (Unchanged) --- */
+.scrollSection { position: relative; width: 100%; }
+.stickyContainer { position: sticky; top: 0; height: 100vh; width: 100%; overflow: hidden; }
+.horizontalTrack { display: flex; position: relative; height: 100%; will-change: transform; }
+
+/* --- Panel Styles (Unchanged) --- */
+.panel {
+    width: 100vw; height: 100%; flex-shrink: 0; display: flex;
+    flex-direction: column; justify-content: center; align-items: center;
+    color: #333; padding: 20px; box-sizing: border-box;
+    text-align: center; overflow: hidden;
+}
+.panel h2 {
+    margin-bottom: 20px; z-index: 10; position: relative;
+    font-family: 'Geist', sans-serif; font-style: normal; font-weight: 700;
+    font-size: 60px; line-height: 78px; letter-spacing: -0.04em; color: #000000;
+}
+
+/* --- Vehicle Container (Using Fixed Spec Dimensions + Scaling) --- */
+.vehicleLayers {
+    position: relative;
+    width: 1920px; /* Base width for calculation */
+    height: 1080px; /* Base height for calculation */
+    background: #FFFFFF;
+    max-width: 100%; /* Allow scaling down */
+    margin: auto;
+    overflow: hidden;
+    /* Keep aspect ratio based on fixed dims for consistency during scaling */
+    aspect-ratio: 1920 / 1080;
+}
+
+/* --- Base Layer Style --- */
+.layerImage {
+    position: absolute;
+    /* Width, Height, Top, Left are set per layer below */
+    object-fit: contain;
+    pointer-events: none;
+    will-change: transform;
+}
+
+/* --- POSITIONING USING PERCENTAGES --- */
+
+/* Layer 1: Shadow (Still using initial calculation, could also be positioned with %) */
+.shadowLayer {
+    z-index: 1;
+    width: 1922px; /* Fixed pixel size from original spec */
+    height: 112px;
+    /* Using calc for now, but could be converted to % from tool if needed */
+    left: calc(50% - 1922px/2);
+    top: calc(50% - 112px/2 + 485px);
+    /* If converting, ensure width/height below use % too */
+    /* width: 100.1%; /* (1922/1920) */
+    /* height: 10.37%; /* (112/1080) */
+}
+
+/* Layer 2: Body (Still using initial calculation) */
+.bodyLayer {
+    z-index: 2;
+    width: 1922px; /* Fixed pixel size from original spec */
+    height: 1081px;
+    left: calc(50% - 1922px/2);
+    top: calc(50% - 1081px/2 + 0.5px);
+     /* If converting, ensure width/height below use % too */
+    /* width: 100.1%; */
+    /* height: 100.09%; */
+}
+
+/* Layer 3 & 4: Wheels - Using PERCENTAGES from the tool */
+/* Apply this class to BOTH wheel motion.img elements in JSX */
+.wheelLayer {
+    z-index: 3;
+    position: absolute; /* Ensure position is absolute */
+    /* Specific left, top, width, height applied via more specific classes below */
+}
+
+/* NEW: Apply the specific positions using the percentages */
+.rearWheelPosition {
+    left: 64.53%;
+    top: 50.55%;
+    width: 23.02%;
+    height: 40.65%;
+}
+
+.frontWheelPosition {
+    left: 12.79%;
+    top: 51.07%;
+    width: 21.82%;
+    height: 38.70%;
+}
+/* --- End Positioning Area --- */

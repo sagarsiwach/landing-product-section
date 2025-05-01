@@ -1,0 +1,80 @@
+/* components/LayerPositioner.module.css */
+
+.toolContainer {
+    padding: 20px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    margin-bottom: 30px;
+}
+
+.toolContainer h2 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    text-align: center;
+}
+.toolContainer p {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #6c757d;
+}
+
+.positioningCanvas {
+    position: relative; /* Needed for absolute children and drag constraints */
+    width: 100%; /* Take up available width */
+    max-width: 960px; /* Limit max width for better viewing, original is 1920px */
+    /* aspect-ratio is set inline */
+    border: 1px dashed #adb5bd;
+    margin: 0 auto 20px auto; /* Center the canvas */
+    overflow: hidden; /* Ensure children don't visually escape bounds */
+    background-color: #e9ecef; /* Light background for canvas */
+    background-image:
+        linear-gradient(to right, #ced4da 1px, transparent 1px),
+        linear-gradient(to bottom, #ced4da 1px, transparent 1px);
+    background-size: 20px 20px; /* Simple grid background */
+}
+
+.staticLayer,
+.draggableLayer {
+    position: absolute;
+    object-fit: contain; /* Ensure images fit */
+    pointer-events: none; /* Static layers shouldn't interfere */
+    user-select: none; /* Prevent text selection */
+}
+
+.draggableLayer {
+    pointer-events: auto; /* Draggable layers need pointer events */
+    /* cursor is set inline via style/whileTap */
+    border: 1px dashed rgba(0, 123, 255, 0.5); /* Visual indicator for draggable items */
+}
+
+.cssOutputContainer {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.cssOutput {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.cssOutput label {
+    font-weight: bold;
+    font-size: 0.9em;
+}
+
+.cssOutput textarea {
+    font-family: monospace;
+    font-size: 0.85em;
+    padding: 8px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    min-width: 300px;
+    min-height: 60px; /* Enough for a couple of lines */
+    resize: none; /* Don't allow user resize */
+    white-space: pre; /* Keep whitespace */
+    overflow-wrap: break-word; /* Wrap long lines */
+}
