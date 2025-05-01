@@ -7,19 +7,14 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import {
-  motion,
-  useScroll,
-  useTransform,
-  useSpring,
-  addScaleCorrection, // Utility for debug panel scaling if needed later
-} from "framer-motion";
+import { motion, useScroll, useTransform, useSpring } from "framer-motion";
 
-// --- Default Configuration (will be controlled by state) ---
-const DEFAULT_BUFFER_VH = 50;
-const DEFAULT_TRANSITION_VH = 400; // Increased for slower transition
-const DEFAULT_STIFFNESS = 100; // Lowered for softer spring alongside snap
+// --- Default Configuration ---
+const DEFAULT_BUFFER_VH = 50; // Initial pause duration for each panel
+const DEFAULT_TRANSITION_VH = 400; // Initial transition duration between panels
+const DEFAULT_STIFFNESS = 100;
 const DEFAULT_DAMPING = 30;
+const WHEEL_ROTATION_MULTIPLIER = 1.5; // How many turns per transition
 
 // --- Panels Data ---
 const PANELS_DATA = [
@@ -64,7 +59,6 @@ const PANEL_WIDTH_VW = 80;
 
 // --- Style Object ---
 const styles = {
-  // ... (ScrollSection, StickyContainer, HorizontalTrack styles remain the same)
   scrollSection: { position: "relative", width: "100%" },
   stickyContainer: {
     position: "sticky",
@@ -82,7 +76,6 @@ const styles = {
     willChange: "transform",
   },
   panel: {
-    // Style for the panel wrapper
     width: `${PANEL_WIDTH_VW}vw`,
     height: "100%",
     flexShrink: 0,
@@ -108,7 +101,7 @@ const styles = {
     alignItems: "flex-start",
     zIndex: 1,
     pointerEvents: "none",
-    willChange: "transform", // Only transform for parallax
+    willChange: "transform",
   },
   parallaxTitle: {
     fontFamily: "'Geist', sans-serif",
@@ -232,26 +225,66 @@ const styles = {
     transition: "background-color 0.3s ease, transform 0.3s ease",
   },
   activeDot: { backgroundColor: "rgba(0, 0, 0, 0.8)", transform: "scale(1.3)" },
-  // Debug Panel Styles
+  // --- Debug Panel Styles ---
   debugPanel: {
     position: "fixed",
     bottom: "10px",
     right: "10px",
-    background: "rgba(0, 0, 0, 0.7)",
+    background: "rgba(0, 0, 0, 0.8)",
     color: "white",
     padding: "15px",
     borderRadius: "8px",
     zIndex: 9999,
-    fontSize: "12px",
+    fontSize: "11px",
     fontFamily: "monospace",
-    width: "250px",
+    width: "280px", // Wider
+    maxHeight: "90vh",
+    overflowY: "auto", // Scrollable
   },
-  debugLabel: { display: "block", marginBottom: "3px" },
-  debugInput: { width: "90%", marginBottom: "8px", padding: "2px" },
+  debugGroup: {
+    marginBottom: "12px",
+    borderBottom: "1px solid #555",
+    paddingBottom: "8px",
+  },
+  debugLabel: { display: "block", marginBottom: "3px", fontWeight: "bold" },
+  debugInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    marginBottom: "5px",
+    padding: "3px",
+    background: "#555",
+    border: "1px solid #777",
+    color: "white",
+  },
+  debugValue: { marginLeft: "8px", fontStyle: "italic", color: "#aaa" },
+  debugButton: {
+    background: "#4CAF50",
+    color: "white",
+    border: "none",
+    padding: "5px 10px",
+    borderRadius: "4px",
+    cursor: "pointer",
+    marginTop: "10px",
+    fontSize: "11px",
+    transition: "background-color 0.3s",
+    ":hover": { background: "#45a049" },
+  },
+  debugJsonArea: {
+    width: "100%",
+    height: "80px",
+    background: "#222",
+    color: "#eee",
+    border: "1px solid #555",
+    fontSize: "10px",
+    marginTop: "5px",
+    whiteSpace: "pre",
+    overflowWrap: "break-word",
+    resize: "none",
+  },
 };
 // --- End Style Object ---
 
-// --- Panel Component (Receives global wheel rotation) ---
+// --- Panel Component ---
 function Panel({
   panelData,
   index,
@@ -261,9 +294,9 @@ function Panel({
 }) {
   if (!panelData || !panelData.layers) return null;
 
-  // Simplified Parallax Timing (adjust if needed)
+  // Calculate parallax ranges based on timeline points passed from parent
   const parallaxStartProgress = timelinePoints[`p${index}Start`] ?? 0;
-  const parallaxEndProgress = timelinePoints[`p${index + 1}Start`] ?? 1; // Visible until next panel starts its buffer
+  const parallaxEndProgress = timelinePoints[`p${index + 1}Start`] ?? 1;
 
   const titleY = useTransform(
     scrollYProgress,
@@ -287,7 +320,6 @@ function Panel({
       </motion.div>
       <div style={styles.vehicleAndContentContainer}>
         <div style={styles.vehicleLayersContainer}>
-          {/* Use the *global* wheelRotation value passed as prop */}
           {panelData.layers.shadow && (
             <motion.img
               src={panelData.layers.shadow}
@@ -359,64 +391,68 @@ export default function HorizontalScrollGallery({ panels = PANELS_DATA }) {
   const [transitionVh, setTransitionVh] = useState(DEFAULT_TRANSITION_VH);
   const [stiffness, setStiffness] = useState(DEFAULT_STIFFNESS);
   const [damping, setDamping] = useState(DEFAULT_DAMPING);
-  const [debugScrollY, setDebugScrollY] = useState(0); // To display current progress
+  const [debugScrollY, setDebugScrollY] = useState(0);
+  const [activePanel, setActivePanel] = useState(0);
+  const [copyButtonText, setCopyButtonText] = useState("Copy JSON");
 
-  // --- Calculate Total Height based on State ---
-  const calculatedHeight = useMemo(() => {
-    // Initial buffer + (transitions + buffers for intermediate panels) + final buffer
+  // --- Calculate Total Height & Timeline Points based on State ---
+  const { calculatedHeight, timelinePoints, totalScrollVh } = useMemo(() => {
+    const numTransitions = numPanels - 1;
+    // Total VH: Initial Buffer + Transitions + Intermediate Buffers + Final Buffer
     const totalVh =
-      bufferVh + (numPanels - 1) * (transitionVh + bufferVh) + bufferVh;
-    // Minimum height to prevent division by zero or weirdness
-    return `${Math.max(100, totalVh)}vh`;
-  }, [numPanels, bufferVh, transitionVh]);
-
-  // --- Calculate Timeline Progress Points based on State ---
-  const timelinePoints = useMemo(() => {
-    const totalVhCalc =
-      bufferVh + (numPanels - 1) * (transitionVh + bufferVh) + bufferVh;
-    if (totalVhCalc <= 0) return {}; // Prevent division by zero
+      bufferVh +
+      numTransitions * transitionVh +
+      numTransitions * bufferVh +
+      bufferVh;
+    const safeTotalVh = Math.max(100, totalVh); // Ensure minimum height
 
     const points = {};
     let currentVh = 0;
+    const epsilon = 0.00001; // Prevent division by zero if totalVh is tiny
 
-    // Panel 0 Hold
-    points.p0Start = currentVh / totalVhCalc; // 0
+    // Panel 0 Hold (Start)
+    points.p0Start = 0;
     currentVh += bufferVh;
-    points.p0HoldEnd = currentVh / totalVhCalc;
-    points.p0TransStart = points.p0HoldEnd; // Transition starts immediately after hold
+    points.p0HoldEnd = currentVh / safeTotalVh;
 
     // Panel 1 Transition & Hold
+    points.p0TransStart = points.p0HoldEnd; // Alias for clarity
     currentVh += transitionVh;
-    points.p1Center = currentVh / totalVhCalc; // P1 finishes transition
-    points.p1TransEnd = points.p1Center;
-    points.p1BufferStart = points.p1Center;
+    points.p1Center = currentVh / safeTotalVh; // P1 finishes centering
+    points.p1TransEnd = points.p1Center; // Alias
+    points.p1BufferStart = points.p1Center; // Alias
     currentVh += bufferVh;
-    points.p1HoldEnd = currentVh / totalVhCalc;
-    points.p1TransStart = points.p1HoldEnd;
+    points.p1HoldEnd = currentVh / safeTotalVh;
 
     // Panel 2 Transition & Hold
+    points.p1TransStart = points.p1HoldEnd; // Alias
     currentVh += transitionVh;
-    points.p2Center = currentVh / totalVhCalc; // P2 finishes transition
-    points.p2TransEnd = points.p2Center;
-    points.p2BufferStart = points.p2Center;
+    points.p2Center = currentVh / safeTotalVh; // P2 finishes centering
+    points.p2TransEnd = points.p2Center; // Alias
+    points.p2BufferStart = points.p2Center; // Alias
     currentVh += bufferVh;
-    points.p2HoldEnd = currentVh / totalVhCalc;
-    // No transition out for P2 in this fixed model
+    points.p2HoldEnd = currentVh / safeTotalVh;
 
-    // Add p3Start for parallax end calculation
-    points.p3Start = points.p2BufferStart; // P3 starts appearing when P2 centers
-
-    // Ensure last point is 1.0
-    points.end = 1.0;
-    if (points.p2HoldEnd < 1.0 && Math.abs(points.p2HoldEnd - 1.0) > 0.001) {
-      // If calculation didn't reach 1.0 exactly add it
-      console.warn("Timeline calculation slightly off, forcing end to 1.0");
+    // Ensure last point is exactly 1.0
+    points.end = Math.min(1.0, points.p2HoldEnd + epsilon); // Clamp near 1.0
+    if (Math.abs(points.p2HoldEnd - 1.0) > epsilon) {
+      console.warn(
+        "Timeline calc end doesn't equal 1.0, was:",
+        points.p2HoldEnd
+      );
+      // Adjust last point to be exactly 1.0 if significantly different
+      points.p2HoldEnd = 1.0;
       points.end = 1.0;
-    } else {
-      points.end = points.p2HoldEnd; // Use calculated end if close enough
     }
 
-    return points;
+    // Add p3Start for Panel component parallax calculation consistency
+    points.p3Start = points.p2BufferStart;
+
+    return {
+      calculatedHeight: `${safeTotalVh}vh`,
+      timelinePoints: points,
+      totalScrollVh: safeTotalVh, // Pass total VH for debug display
+    };
   }, [numPanels, bufferVh, transitionVh]);
 
   const { scrollYProgress } = useScroll({
@@ -429,11 +465,11 @@ export default function HorizontalScrollGallery({ panels = PANELS_DATA }) {
     return scrollYProgress.onChange((v) => setDebugScrollY(v));
   }, [scrollYProgress]);
 
-  // --- Horizontal Scroll Mapping (Uses calculated timelinePoints) ---
+  // --- Horizontal Scroll Mapping ---
   const { inputRange, outputRange } = useMemo(() => {
-    // Ensure timelinePoints are calculated
-    if (Object.keys(timelinePoints).length === 0) {
-      return { inputRange: [0, 1], outputRange: ["0%", "0%"] }; // Default if calculation failed
+    if (Object.keys(timelinePoints).length < 3) {
+      // Need at least start, p0HoldEnd, p1Center etc.
+      return { inputRange: [0, 1], outputRange: ["0%", "0%"] };
     }
 
     // Build ranges based on the calculated points for the "snap" effect
@@ -455,16 +491,22 @@ export default function HorizontalScrollGallery({ panels = PANELS_DATA }) {
       `-160%`, // P2 centered (end hold)
     ];
 
-    // Simple filtering of consecutive duplicate *input* points (useTransform handles duplicate outputs fine)
-    const filteredInput = [input[0]];
-    const filteredOutput = [output[0]];
+    // Filter consecutive duplicate input points (more robust than epsilon check here)
+    const filteredInput = [];
+    const filteredOutput = [];
+    if (input.length > 0) {
+      filteredInput.push(input[0]);
+      filteredOutput.push(output[0]);
+    }
     for (let i = 1; i < input.length; i++) {
-      if (Math.abs(input[i] - input[i - 1]) > 0.0001) {
-        // Only add if distinct
+      // Only add point if its input value is different from the previous one
+      if (
+        Math.abs(input[i] - filteredInput[filteredInput.length - 1]) > 0.00001
+      ) {
         filteredInput.push(input[i]);
         filteredOutput.push(output[i]);
       } else {
-        // If input is duplicate, make sure output matches the LATER intended state
+        // If input is duplicate, update the last output value just in case
         filteredOutput[filteredOutput.length - 1] = output[i];
       }
     }
@@ -481,33 +523,29 @@ export default function HorizontalScrollGallery({ panels = PANELS_DATA }) {
   // --- Wheel Rotation (Global) ---
   const wheelRotation = useTransform(
     scrollYProgress,
-    // Input ranges covering *all* transition periods
     [
       timelinePoints.p0TransStart ?? 0,
-      timelinePoints.p1TransEnd ?? 0, // Transition 0 -> 1
+      timelinePoints.p1TransEnd ?? 0,
       timelinePoints.p1TransStart ?? 0,
-      timelinePoints.p2TransEnd ?? 0, // Transition 1 -> 2
+      timelinePoints.p2TransEnd ?? 0,
     ],
-    // Output corresponding rotation amounts
     [
       0,
-      -360 * 1.5, // Rotate during first transition
-      -360 * 1.5,
-      -360 * 3.0, // Continue rotating during second transition
-      // Adjust multiplier if you want rotation speed to reset
+      -360 * WHEEL_ROTATION_MULTIPLIER,
+      -360 * WHEEL_ROTATION_MULTIPLIER,
+      -360 * 2 * WHEEL_ROTATION_MULTIPLIER,
     ],
     { clamp: true }
   );
 
-  // Active Panel Tracking (Based on timelinePoints)
-  const [activePanel, setActivePanel] = useState(0);
+  // Active Panel Tracking
   useEffect(() => {
     const unsubscribe = scrollYProgress.onChange((latestValue) => {
       let currentActive = 0;
-      // Use the points where a panel *finishes* centering
-      if (latestValue >= timelinePoints.p2Center) {
+      // Check based on when panel *finishes* centering (end of transition)
+      if (latestValue >= (timelinePoints.p2Center ?? 1)) {
         currentActive = 2;
-      } else if (latestValue >= timelinePoints.p1Center) {
+      } else if (latestValue >= (timelinePoints.p1Center ?? 1)) {
         currentActive = 1;
       }
 
@@ -516,46 +554,65 @@ export default function HorizontalScrollGallery({ panels = PANELS_DATA }) {
       }
     });
     return () => unsubscribe();
-  }, [scrollYProgress, activePanel, timelinePoints]); // Add timelinePoints dependency
+  }, [scrollYProgress, activePanel, timelinePoints]);
 
-  // Dot Click Handler (Uses timelinePoints)
+  // Dot Click Handler
   const handleDotClick = (index) => {
     const targetElement = targetRef.current;
-    if (!targetElement) return;
+    if (!targetElement || !timelinePoints) return;
 
-    // Target the progress point where the desired panel *finishes* centering
     let targetProgress = 0;
+    // Target the progress point where the panel *finishes* centering
     if (index === 1) targetProgress = timelinePoints.p1Center ?? 0;
     else if (index === 2) targetProgress = timelinePoints.p2Center ?? 0;
 
     const totalScrollableHeight =
       targetElement.scrollHeight - window.innerHeight;
-    // Clamp progress to avoid overshooting
-    targetProgress = Math.max(0, Math.min(1, targetProgress));
+    targetProgress = Math.max(0, Math.min(1, targetProgress)); // Clamp progress
     const targetScrollY =
       targetElement.offsetTop + targetProgress * totalScrollableHeight;
     window.scrollTo({ top: targetScrollY, behavior: "smooth" });
   };
 
+  // --- JSON Copy Logic ---
+  const getCurrentSettingsJson = useCallback(() => {
+    const settings = { bufferVh, transitionVh, stiffness, damping };
+    return JSON.stringify(settings, null, 2); // Pretty print
+  }, [bufferVh, transitionVh, stiffness, damping]);
+
+  const handleCopyJson = () => {
+    const jsonString = getCurrentSettingsJson();
+    navigator.clipboard
+      .writeText(jsonString)
+      .then(() => {
+        setCopyButtonText("Copied!");
+        setTimeout(() => setCopyButtonText("Copy JSON"), 1500); // Reset after 1.5s
+      })
+      .catch((err) => {
+        console.error("Failed to copy JSON: ", err);
+        setCopyButtonText("Error!");
+        setTimeout(() => setCopyButtonText("Copy JSON"), 1500);
+      });
+  };
+
   return (
     <>
       {" "}
-      {/* Use Fragment to avoid extra div */}
+      {/* Use Fragment */}
       <section
         ref={targetRef}
         style={{ ...styles.scrollSection, height: calculatedHeight }}
       >
         <div style={styles.stickyContainer}>
           <motion.div style={{ ...styles.horizontalTrack, x }}>
-            {/* Render the 3 panels */}
             {panels.map((panelData, index) => (
               <Panel
                 key={panelData.id}
                 panelData={panelData}
                 index={index}
                 scrollYProgress={scrollYProgress}
-                wheelRotation={wheelRotation} // Pass global rotation
-                timelinePoints={timelinePoints} // Pass timeline for parallax
+                wheelRotation={wheelRotation}
+                timelinePoints={timelinePoints}
               />
             ))}
           </motion.div>
@@ -583,57 +640,94 @@ export default function HorizontalScrollGallery({ panels = PANELS_DATA }) {
       </section>
       {/* Debug Panel */}
       <div style={styles.debugPanel}>
-        <label style={styles.debugLabel}>Buffer VH: {bufferVh}</label>
-        <input
-          type="range"
-          min="0"
-          max="200"
-          step="5"
-          value={bufferVh}
-          onChange={(e) => setBufferVh(parseInt(e.target.value))}
-          style={styles.debugInput}
-        />
+        <div style={styles.debugGroup}>
+          <label htmlFor="bufferInput" style={styles.debugLabel}>
+            Buffer VH: <span style={styles.debugValue}>{bufferVh}</span>
+          </label>
+          <input
+            id="bufferInput"
+            type="range"
+            min="0"
+            max="200"
+            step="5"
+            value={bufferVh}
+            onChange={(e) => setBufferVh(parseInt(e.target.value))}
+            style={styles.debugInput}
+          />
+        </div>
 
-        <label style={styles.debugLabel}>Transition VH: {transitionVh}</label>
-        <input
-          type="range"
-          min="50"
-          max="1000"
-          step="10"
-          value={transitionVh}
-          onChange={(e) => setTransitionVh(parseInt(e.target.value))}
-          style={styles.debugInput}
-        />
+        <div style={styles.debugGroup}>
+          <label htmlFor="transitionInput" style={styles.debugLabel}>
+            Transition VH: <span style={styles.debugValue}>{transitionVh}</span>
+          </label>
+          <input
+            id="transitionInput"
+            type="range"
+            min="50"
+            max="1000"
+            step="10"
+            value={transitionVh}
+            onChange={(e) => setTransitionVh(parseInt(e.target.value))}
+            style={styles.debugInput}
+          />
+        </div>
 
-        <label style={styles.debugLabel}>Stiffness: {stiffness}</label>
-        <input
-          type="range"
-          min="10"
-          max="500"
-          step="10"
-          value={stiffness}
-          onChange={(e) => setStiffness(parseInt(e.target.value))}
-          style={styles.debugInput}
-        />
+        <div style={styles.debugGroup}>
+          <label htmlFor="stiffnessInput" style={styles.debugLabel}>
+            Stiffness: <span style={styles.debugValue}>{stiffness}</span>
+          </label>
+          <input
+            id="stiffnessInput"
+            type="range"
+            min="10"
+            max="500"
+            step="10"
+            value={stiffness}
+            onChange={(e) => setStiffness(parseInt(e.target.value))}
+            style={styles.debugInput}
+          />
+        </div>
 
-        <label style={styles.debugLabel}>Damping: {damping}</label>
-        <input
-          type="range"
-          min="5"
-          max="100"
-          step="1"
-          value={damping}
-          onChange={(e) => setDamping(parseInt(e.target.value))}
-          style={styles.debugInput}
-        />
+        <div style={styles.debugGroup}>
+          <label htmlFor="dampingInput" style={styles.debugLabel}>
+            Damping: <span style={styles.debugValue}>{damping}</span>
+          </label>
+          <input
+            id="dampingInput"
+            type="range"
+            min="5"
+            max="100"
+            step="1"
+            value={damping}
+            onChange={(e) => setDamping(parseInt(e.target.value))}
+            style={styles.debugInput}
+          />
+        </div>
 
-        <label style={styles.debugLabel}>
-          Total Height: {calculatedHeight}
-        </label>
-        <label style={styles.debugLabel}>
-          ScrollYProgress: {debugScrollY.toFixed(3)}
-        </label>
-        <label style={styles.debugLabel}>Active Panel: {activePanel}</label>
+        <div style={styles.debugGroup}>
+          <span style={styles.debugLabel}>Readouts:</span>
+          <span style={styles.debugValue}>
+            Total Height: {calculatedHeight} ({totalScrollVh?.toFixed(0)}vh)
+          </span>
+          <br />
+          <span style={styles.debugValue}>
+            ScrollYProg: {debugScrollY.toFixed(3)}
+          </span>
+          <br />
+          <span style={styles.debugValue}>Active Panel: {activePanel}</span>
+        </div>
+
+        <div style={styles.debugGroup}>
+          <span style={styles.debugLabel}>Current Settings JSON:</span>
+          <textarea
+            style={styles.debugJsonArea}
+            value={getCurrentSettingsJson()}
+            readOnly
+          />
+          <button onClick={handleCopyJson} style={styles.debugButton}>
+            {copyButtonText}
+          </button>
+        </div>
       </div>
     </>
   );
